@@ -44,6 +44,7 @@ LLM 모델이 감정 코퍼스 데이터셋을 사용한 파라미터 효율적 
 git clone https://github.com/yourusername/emotion-matching-project.git
 cd emotion-matching-project
 pip install -r requirements.txt
+```
 
 # 진행
 ## EDA
