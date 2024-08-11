@@ -109,6 +109,7 @@ trainer = SFTTrainer(
 ![llama3.1-8B-Instruct.png](./images/llama3.1-8B-Instruct.png)
 - meta-llama/Meta-Llama-3.1-8B-Instruct Base모델 GPU 메모리에 load
 - 약 16GB 크기
+
 ![QLoRA-llama3.1-B-Instruct.png](.images/QLoRA-llama3.1-8B-Instruct.png)
 - QLoRA fine tuning 진행한 모델 GPU 메모리에 load
 - 약 7GB크기
