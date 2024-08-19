@@ -45,7 +45,7 @@ def inference_with_pipeline(model, tokenizer, prompt):
      ]
     '''
     chat_message = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-    chat_message += "\n<start_of_turn>model\n"
+    chat_message += "<start_of_turn>model"
     outputs = pipe(
         chat_message,
         do_sample=True,
@@ -85,7 +85,8 @@ def inference_with_prompt_list(prompt_list, model, tokenizer, save_path=None, Y_
     start = time.time()
     for i, (q, y) in enumerate(zip(prompt_list, Y_val)):
         answer = inference_with_pipeline(model, tokenizer, q)
-        answer = answer.split('\n')[-1]
+        #answer = answer.split('\n')[-1] # llama3.1
+        answer = answer.split('\n')[0]  # gemma
         if len(answer) > 2:
             answer = answer[:2]
 
