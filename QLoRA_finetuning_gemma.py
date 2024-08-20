@@ -20,8 +20,8 @@ def generate_prompts_train(example):
     for i in range(len(example['user'])):
         messages = [
 #             {"role": "system", "content": system_msg},
-             #{'role': 'user', 'content': "{}\n 앞 문장의 감정은 분노, 기쁨, 불안, 당황, 슬픔, 상처 중에 어떤거야? 반드시 한 단어로 답변해줘.".format(example['user'][i])},
-            {'role': 'user', 'content': "{}\n".format(example['user'][i])},
+            {'role': 'user', 'content': "{}\n 앞 문장의 감정은 분노, 기쁨, 불안, 당황, 슬픔, 상처 중에 어떤거야? 반드시 한 단어로 답변해줘.".format(example['user'][i])},
+# {'role': 'user', 'content': "{}\n".format(example['user'][i])},
             {'role': 'assistant', 'content': "{}".format(example['assistant'][i])}
         ]
         print("# check modified")
@@ -44,7 +44,7 @@ parser = argparse.ArgumentParser(description="Process some input argument.")
 # Add a positional argument
 parser.add_argument(
     '-l',
-    '-llmmodel'
+    '-llmmodel',
     dest='llm_model',  # Name of the argument
     type=str,  # The data type expected
     help='LLMModel path or name e.g., llama3'  # Help message
@@ -69,7 +69,7 @@ parser.add_argument(
 parser.add_argument(
     '-o',
     '--outputs',
-    dest='outputs'# Name of the argument
+    dest='outputs',# Name of the argument
     type=str,  # The data type expected
     help='finedtuned model path'  # Help message
 )
