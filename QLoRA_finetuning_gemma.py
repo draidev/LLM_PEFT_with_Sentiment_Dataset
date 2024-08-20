@@ -20,9 +20,11 @@ def generate_prompts_train(example):
     for i in range(len(example['user'])):
         messages = [
 #             {"role": "system", "content": system_msg},
-            {'role': 'user', 'content': "{}\n 앞 문장의 감정은 분노, 기쁨, 불안, 당황, 슬픔, 상처 중에 어떤거야? 반드시 한 단어로 답변해줘.".format(example['user'][i])},
+             #{'role': 'user', 'content': "{}\n 앞 문장의 감정은 분노, 기쁨, 불안, 당황, 슬픔, 상처 중에 어떤거야? 반드시 한 단어로 답변해줘.".format(example['user'][i])},
+            {'role': 'user', 'content': "{}\n".format(example['user'][i])},
             {'role': 'assistant', 'content': "{}".format(example['assistant'][i])}
         ]
+        print("# check modified")
         chat_message = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         chat_message = chat_message.rstrip()
         chat_message = chat_message+"<eos>"
@@ -41,29 +43,48 @@ parser = argparse.ArgumentParser(description="Process some input argument.")
 
 # Add a positional argument
 parser.add_argument(
-    'llm_model',  # Name of the argument
+    '-l',
+    '-llmmodel'
+    dest='llm_model',  # Name of the argument
     type=str,  # The data type expected
     help='LLMModel path or name e.g., llama3'  # Help message
 )
+
 parser.add_argument(
-    'dataset',  # Name of the argument
+    '-d',
+    '--dataset',
+    dest='dataset',  # Name of the argument
     type=str,  # The data type expected
     help='dataset path'  # Help message
 )
+
 parser.add_argument(
-    'finetuned_model',  # Name of the argument
+    '-f',
+    '--finetunedmodel',
+    dest='finetuned_model',  # Name of the argument
+    type=str,  # The data type expected
+    help='finedtuned model path'  # Help message
+)
+
+parser.add_argument(
+    '-o',
+    '--outputs',
+    dest='outputs'# Name of the argument
     type=str,  # The data type expected
     help='finedtuned model path'  # Help message
 )
 
 args = parser.parse_args()
-print(f"Received argument: {args.llm_model}, {args.dataset}, {args.finetuned_model}")
-#llm_model = args.llm_model
-#dataset = args.dataset
+llm_model = args.llm_model
+finetuned_model = args.finetuned_model
+dataset = args.dataset
+outputs = args.outputs
 
-if args.dataset:
-    dataset_dict = DatasetDict.load_from_disk(args.dataset)
-    print(f"dataset path : {args.dataset}")
+print(f"Received argument: llm_model : {llm_model}, dataset : {dataset}, finetuned_model : {finetuned_model}, outputs : {outputs}")
+
+if dataset:
+    dataset_dict = DatasetDict.load_from_disk(dataset)
+    print(f"dataset path : {dataset}")
 else:
     dataset_dict = DatasetDict.load_from_disk('./emotional_dataset')
 
@@ -74,12 +95,42 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_compute_dtype=torch.float16
 )
 
-model = AutoModelForCausalLM.from_pretrained(args.llm_model, device_map="auto", quantization_config=bnb_config) # 양자화 함
-tokenizer = AutoTokenizer.from_pretrained(args.llm_model, add_special_tokens=True)
+model = AutoModelForCausalLM.from_pretrained(llm_model, device_map="auto", quantization_config=bnb_config, attn_implementation='eager') # 양자화 함
+tokenizer = AutoTokenizer.from_pretrained(llm_model, add_special_tokens=True)
+tokenizer.padding_side='right'
 
 lora_config = LoraConfig(
     r=6,
     lora_alpha = 8,
+    lora_dropout = 0.05,
+    target_modules=["q_proj", "o_proj", "k_proj", "v_proj", "gate_proj", "up_proj", "down_proj"],
+    task_type="CAUSAL_LM",
+)
+
+trainer = SFTTrainer(
+    model=model,
+    train_dataset=dataset_dict['train'],
+    max_seq_length=512,
+    args=TrainingArguments(
+        output_dir=outputs,
+        num_train_epochs = 1,
+        max_steps=3000,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=4,
+        optim="paged_adamw_8bit",
+#   warmup_steps=0.03,
+        learning_rate=2e-4,
+        bf16=True,
+        logging_steps=100,
+        report_to="wandb"
+    ),
+    peft_config=lora_config,
+    formatting_func=generate_prompts_train
+)
+'''
+lora_config = LoraConfig(
+    r=8,
+    lora_alpha = 16,
     lora_dropout = 0.05,
     target_modules=["q_proj", "o_proj", "k_proj", "v_proj", "gate_proj", "up_proj", "down_proj"],
     task_type="CAUSAL_LM",
@@ -92,15 +143,15 @@ trainer = SFTTrainer(
     train_dataset=dataset_dict['train'],
     max_seq_length=512,
     args=TrainingArguments(
-        output_dir="outputs",
-#        num_train_epochs = 1,
+        output_dir=outputs,
+        num_train_epochs = 5,
         max_steps=3000,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=1,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
         optim="paged_adamw_8bit",
-#        warmup_steps=0.03,
+        warmup_steps=300,
         learning_rate=2e-4,
-        fp16=True,
+        bf16=True,
         logging_steps=100,
         report_to="wandb",
         push_to_hub=False,
@@ -108,15 +159,15 @@ trainer = SFTTrainer(
     peft_config=lora_config,
     formatting_func=generate_prompts_train
 )
-
+'''
 trainer.train()
 
 # model save
-ADAPTER_MODEL = args.llm_model+"_lora_adapter"
+ADAPTER_MODEL = llm_model+"_lora_adapter"
 
 trainer.model.save_pretrained(ADAPTER_MODEL)
 
 model = PeftModel.from_pretrained(model, ADAPTER_MODEL, device_map='auto', torch_dtype=torch.float16)
 
 model = model.merge_and_unload()
-model.save_pretrained(args.finetuned_model)
+model.save_pretrained(finetuned_model)
