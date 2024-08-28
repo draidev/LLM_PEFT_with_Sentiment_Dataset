@@ -9,8 +9,7 @@ os.chdir('/lockard_ai/works/PEFT/')
 from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 import torch
 import transformers
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, pipeline, Trainer, TrainingArguments
-from peft import LoraConfig, PeftModel
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, pipeline, Trainer, TrainingArguments, Gemma2ForCausalLM
 from trl import SFTTrainer
 from peft import LoraConfig, PeftModel, PeftConfig
 
@@ -24,7 +23,6 @@ def generate_prompts_train(example):
 # {'role': 'user', 'content': "{}\n".format(example['user'][i])},
             {'role': 'assistant', 'content': "{}".format(example['assistant'][i])}
         ]
-        print("# check modified")
         chat_message = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         chat_message = chat_message.rstrip()
         chat_message = chat_message+"<eos>"
@@ -92,13 +90,17 @@ else:
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.float16
+    bnb_4bit_compute_dtype=torch.bfloat16
 )
+
+torch.cuda.empty_cache()
 
 model = AutoModelForCausalLM.from_pretrained(llm_model, device_map="auto", quantization_config=bnb_config, attn_implementation='eager') # 양자화 함
 tokenizer = AutoTokenizer.from_pretrained(llm_model, add_special_tokens=True)
 tokenizer.padding_side='right'
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+'''
 lora_config = LoraConfig(
     r=6,
     lora_alpha = 8,
@@ -106,6 +108,7 @@ lora_config = LoraConfig(
     target_modules=["q_proj", "o_proj", "k_proj", "v_proj", "gate_proj", "up_proj", "down_proj"],
     task_type="CAUSAL_LM",
 )
+
 
 trainer = SFTTrainer(
     model=model,
@@ -129,8 +132,8 @@ trainer = SFTTrainer(
 )
 '''
 lora_config = LoraConfig(
-    r=8,
-    lora_alpha = 16,
+    r=6,
+    lora_alpha = 8,
     lora_dropout = 0.05,
     target_modules=["q_proj", "o_proj", "k_proj", "v_proj", "gate_proj", "up_proj", "down_proj"],
     task_type="CAUSAL_LM",
@@ -141,25 +144,27 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 trainer = SFTTrainer(
     model=model,
     train_dataset=dataset_dict['train'],
-    max_seq_length=512,
+    max_seq_length=128,
     args=TrainingArguments(
         output_dir=outputs,
         num_train_epochs = 5,
         max_steps=3000,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=16,
         optim="paged_adamw_8bit",
-        warmup_steps=300,
+        warmup_steps=5,
         learning_rate=2e-4,
         bf16=True,
         logging_steps=100,
         report_to="wandb",
+        run_name=outputs,
         push_to_hub=False,
+        seed=42
     ),
     peft_config=lora_config,
     formatting_func=generate_prompts_train
 )
-'''
+
 trainer.train()
 
 # model save
@@ -167,7 +172,7 @@ ADAPTER_MODEL = llm_model+"_lora_adapter"
 
 trainer.model.save_pretrained(ADAPTER_MODEL)
 
-model = PeftModel.from_pretrained(model, ADAPTER_MODEL, device_map='auto', torch_dtype=torch.float16)
+model = PeftModel.from_pretrained(model, ADAPTER_MODEL, device_map='auto', torch_dtype=torch.bfloat16)
 
 model = model.merge_and_unload()
 model.save_pretrained(finetuned_model)
