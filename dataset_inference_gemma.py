@@ -74,32 +74,41 @@ def inference_with_pipeline(model, tokenizer, prompt):
     print("##################")
     '''
     return outputs[0]["generated_text"][len(chat_message):]
-    #return outputs[0]["generated_text"]
-    #return outputs[0]["generated_text"][2]['content']
 
+def find_label_words(answer, label):
+    found_words = [word for word in label if word in answer]
+
+    if found_words:
+        return found_words[0]
+    else:
+        return None
 
 def inference_with_prompt_list(prompt_list, model, tokenizer, save_path=None, Y_val=None):
     label = ['상처', '슬픔', '기쁨', '분노', '불안', '당황']
     answer_list = list()
 
+    print("start inference!!!")
     start = time.time()
     for i, (q, y) in enumerate(zip(prompt_list, Y_val)):
         answer = inference_with_pipeline(model, tokenizer, q)
-        #answer = answer.split('\n')[-1] # llama3.1
+        full_answer = answer
+        answer = find_label_words(answer, label)
+        '''
+        answer = answer.split('\n')[-1] # llama3.1
         answer = answer.split('\n')[0]  # gemma
         if len(answer) > 2:
             answer = answer[:2]
-
-        if answer in label:
+        '''
+        if answer:
             print(i, answer, end=" ")
             answer_list.append(answer)
             if save_path:
-                save_oneline_result_to_csv(answer, save_path, y)
+                save_oneline_result_to_csv(answer, full_answer, save_path, y)
         else:
-            print("\nWrong answer at {}: {}\n answer : {}".format(i,q,answer))
+            print("\nWrong answer at {}: {}\n answer : {}".format(i,q,full_answer))
             answer_list.append('False')
             if save_path:
-                save_oneline_result_to_csv('False', save_path, y)
+                save_oneline_result_to_csv('False', full_answer, save_path, y)
 
     end = time.time()
     elapsed_time = end - start
@@ -108,21 +117,20 @@ def inference_with_prompt_list(prompt_list, model, tokenizer, save_path=None, Y_
 
     return answer_list
 
-def save_oneline_result_to_csv(answer, save_path, Y_val):
+def save_oneline_result_to_csv(answer, full_answer, save_path, Y_val):
     if os.path.exists(save_path):
         old_df = pd.read_csv(save_path)
         #new_line = pd.DataFrame([answer], columns=['predict_result'])
-        new_line = pd.DataFrame({'Y_pred':[answer], 'Y_val':[Y_val]})
+        new_line = pd.DataFrame({'Y_pred':[answer], 'Y_val':[Y_val], 'full_answer':[full_answer]})
         new_df = pd.concat([old_df,new_line], axis=0)
         new_df.to_csv(save_path, index=False)
     else:
-        df = pd.DataFrame({'Y_pred':[answer], 'Y_val':[Y_val]})
+        df = pd.DataFrame({'Y_pred':[answer], 'Y_val':[Y_val], 'full_answer':[full_answer]})
         df.to_csv(save_path, index=False)
-
 
 def main():
     parser = argparse.ArgumentParser(description="Process some input argument.")
-
+    '''
     parser.add_argument(
         'base_model',  # Name of the argument
         type=str,  # The data type expected
@@ -140,15 +148,46 @@ def main():
         type=str,  # The data type expected
         help='inference result save path'  # Help message
     )
+    '''
+    parser.add_argument(
+        '-b',
+        '--basemodel',
+        dest='base_model',  # Name of the argument
+        type=str,  # The data type expected
+        help='LLM base model name'  # Help message
+    )
+
+    parser.add_argument(
+        '-t',
+        '--trainedmodel',
+        dest='trained_model',  # Name of the argument
+        type=str,  # The data type expected
+        help='LLM model path'  # Help message
+    )
+
+    parser.add_argument(
+        '-s',
+        '--savepath',
+        dest='save_path',  # Name of the argument
+        type=str,  # The data type expected
+        help='inference result save path'  # Help message
+    )
+
+    parser.add_argument(
+        '-d',
+        '--dataset',
+        dest='dataset',  # Name of the argument
+        type=str,  # The data type expected
+        help='dataset category test or train'  # Help message
+    )
     args = parser.parse_args()
     print(f"base model path : {args.base_model}")
     print(f"trained model path : {args.trained_model}")
     print(f"save path : {args.save_path}")
 
     dataset_dict = DatasetDict.load_from_disk('./emotional_dataset')
-    label_encoder = joblib.load('./emotional_dataset_label_encoder.enc')
-    print('label :', label_encoder.inverse_transform([0,1,2,3,4,5,6]))
     origin_model_path = args.base_model
+
     if args.trained_model:
         print('#trained_model path : ', args.trained_model)
         trained_model_path = args.trained_model
@@ -167,7 +206,7 @@ def main():
     print('#######', trained_model_path)
     if args.trained_model:
         print("load raw model with torch.float16")
-        trained_model = AutoModelForCausalLM.from_pretrained(trained_model_path, device_map="auto", torch_dtype=torch.float16)
+        trained_model = AutoModelForCausalLM.from_pretrained(trained_model_path, device_map="auto", torch_dtype=torch.bfloat16)
     else:
         print("load with quantization")
         print('bnb_config', bnb_config)
@@ -176,12 +215,13 @@ def main():
     trained_tokenizer = AutoTokenizer.from_pretrained(origin_model_path)
     #trained_tokenizer.pad_token = trained_tokenizer.eos_token
     #trained_tokenizer.padding_side = "right"
-    X_val = dataset_dict['test']['user']
-    Y_val = dataset_dict['test']['assistant']
-    '''
-    X_val = dataset_dict['train']['user']
-    Y_val = dataset_dict['train']['assistant']
-    '''
+
+    if args.dataset == 'test':
+        X_val = dataset_dict['test']['user']
+        Y_val = dataset_dict['test']['assistant']
+    elif args.datset == 'train':
+        X_val = dataset_dict['train']['user']
+        Y_val = dataset_dict['train']['assistant']
     print("X_val length : ", len(X_val))
     print("Y_val length : ", len(Y_val))
 
@@ -191,9 +231,6 @@ def main():
             반드시 다음 중 한 단어로 답변해줘 : 분노, 기쁨, 불안, 당황, 슬픔, 상처.'
     suffix_prompt = ' 앞 문장의 감정은 분노, 기쁨, 불안, 당황, 슬픔, 상처 중에 어떤거야? 반드시 한 단어로 답변해줘.'
     Y_pred =inference_with_prompt_list(X_val, trained_model, trained_tokenizer, save_path=args.save_path, Y_val=Y_val)
-    print(f"Y_pred : {Y_pred}")
-    encoded_X_val = label_encoder.transform(Y_val)
-    encoded_Y_val = label_encoder.transform(Y_pred)
 
 #print((classification_report(encoded_y_train, encoded_y_pred)))
 
