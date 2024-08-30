@@ -20,15 +20,18 @@ def generate_prompts_train(example):
     for i in range(len(example['user'])):
         messages = [
 #             {"role": "system", "content": system_msg},
-            {'role': 'user', 'content': example['user'][i]},
+            {'role': 'user', 'content': "{}\n 앞 문장의 감정은 분노, 기쁨, 불안, 당황, 슬픔, 상처 중에 어떤거야? 반드시 한 단어로 답변해줘.".format(example['user'][i])},
             {'role': 'assistant', 'content': "{}".format(example['assistant'][i])}
         ]
         chat_message = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+        chat_message = chat_message.rstrip()
+        chat_message = chat_message+"<eos>"
         '''
         print("###################################")
-        print('<chat_message>\n', chat_message)
+        print('###chat_message###\n', chat_message)
         print("###################################")
         '''
+        
         output_texts.append(chat_message)
 
     return output_texts
@@ -87,7 +90,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 trainer = SFTTrainer(
     model=model,
     train_dataset=dataset_dict['train'],
-    max_seq_length=256,
+    max_seq_length=512,
     args=TrainingArguments(
         output_dir="outputs",
 #        num_train_epochs = 1,
@@ -95,7 +98,7 @@ trainer = SFTTrainer(
         per_device_train_batch_size=1,
         gradient_accumulation_steps=1,
         optim="paged_adamw_8bit",
-        warmup_steps=0.03,
+#        warmup_steps=0.03,
         learning_rate=2e-4,
         fp16=True,
         logging_steps=100,
@@ -109,7 +112,7 @@ trainer = SFTTrainer(
 trainer.train()
 
 # model save
-ADAPTER_MODEL = "lora_adapter"
+ADAPTER_MODEL = args.llm_model+"_lora_adapter"
 
 trainer.model.save_pretrained(ADAPTER_MODEL)
 
