@@ -34,8 +34,11 @@ class LLMModel:
                     num_ctx=conf.model_parameter.num_ctx,
                     top_p = conf.model_parameter.top_p)
 
-            self.model_tokenizer = self.load_tokenizer()
-                
+            if self.load_tokenizer():
+                print("Success load tokenizer...")
+            else:
+                print("Fail to load tokenizer...")
+
         elif self.model_platform == "huggingface":
             self.llm = HuggingFacePipeline.from_model_id(
                 model_id=self.model_name, task="text-generation", device=0, pipeline_kwargs={"max_new_tokens": 512},)
@@ -119,45 +122,76 @@ class LLMModel:
         prompt_token_length = len(encoded_prompt)
         return prompt_token_length
 
-    def contains_tokenizer_file(self):
-        for root, dirs, files in os.walk(self.tokenizer_path):
-            for file in files:
-                if 'tokenizer' in file:
-                    return True
-        return False
 
-    def load_tokenizer(self):
-        print("Start load tokenizer...")
+    def contains_tokenizer_file(self):                                                                             
+        try:                                                                                                       
+            for root, dirs, files in os.walk(self.tokenizer_path):                                                 
+                for file in files:                                                                                 
+                    if 'tokenizer' in file:                                                                        
+                        return True                                                                                
+                print("Any tokenizer file not exists in the dir! check dir.")                                      
+        except:                                                                                                    
+            print("Tokenizer haven't downloaded in local dir yet.")                                                
+            return False                                                                                           
+                                                                                                                   
+    def load_tokenizer(self):                                                                                      
+        print("Start load tokenizer...")                                                                           
+        try:                                                                                                       
+            if self.contains_tokenizer_file():                                                                     
+                self.model_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)                          
+                return True                                                                                        
+            else:                                                                                                  
+                self.download_tokenizer()                                                                          
+                return True                                                                                        
+        except Exception as e:                                                                                     
+            print("Tokenizer load ERROR :", e)                                                                     
+            return None                                                                                            
+
+
+    def download_tokenizer(self):                                                                                   
+        try:                                                                                                        
+            # make dir for saving a tokenizer                                                                       
+            tokenizer_creator = self.tokenizer_path.split('/')[0]                                                   
+            tokenizer_name = self.tokenizer_path.split('/')[1]                                                      
+            dst_tokenizer_path = os.path.join(TOKENIZER_DIR, tokenizer_name)                                        
+                                                                                                                    
+            if not os.path.exists(dst_tokenizer_path):                                                              
+                os.makedirs(dst_tokenizer_path)                                                                     
+            else:                                                                                                   
+                print("Directory is already exists. No need to mkdir")                                              
+                                                                                                                    
+            # download model and copy to local dir                                                                  
+            self.model_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, cache_dir=TOKENIZER_DIR)      
+                                                                                                                    
+            src_tokenizer_path = os.path.join(TOKENIZER_DIR, f"models--{tokenizer_creator}--{tokenizer_name}")      
+            source_dir = src_tokenizer_path                                                                         
+            src_tokenizer_path = os.path.join(src_tokenizer_path, TOKENIZER_SNAPSHOTS)                              
+            src_tokenizer_path = os.path.join(src_tokenizer_path, os.listdir(src_tokenizer_path)[0])                
+                                                                                                                    
+            tokenizer_file_list = os.listdir(src_tokenizer_path)                                                    
+            tokenizer_file_list = [f for f in tokenizer_file_list if os.path.isfile(os.path.join(src_tokenizer_path, f))]
+ 
+            for file_name in tokenizer_file_list:                                                                   
+                source_file = os.path.join(src_tokenizer_path, file_name)                                           
+                if os.path.islink(source_file):
+                    abs_path = os.path.realpath(source_file)                                                        
+                    shutil.copy2(abs_path, os.path.join(dst_tokenizer_path, file_name))                             
+                else:
+                    print("Not a link file")                                                                        
+                    
+            self.delete_directory(source_dir)                                                                       
+            
+        except Exception as e:                                                                                      
+            print("ERROR :", e)                                                                                     
+            
+    def delete_directory(self, directory_path):                                                                     
         try:
-            if self.contains_tokenizer_file:
-                model_tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
-                print("Success load tokenizer...")
-                return model_tokenizer
+            shutil.rmtree(directory_path)  # Recursively delete the directory and its contents                      
+            print(f"Directory {directory_path} and its contents deleted successfully.")
+        except FileNotFoundError:
+            print(f"Directory {directory_path} not found.")                                                         
+        except PermissionError:
+            print(f"Permission denied to delete {directory_path}.")                                                 
         except Exception as e:
-            print("Tokenizer load ERROR :", e)
-            return None
-
-    def download_tokenizer(self):
-        if not os.path.exists(self.tokenizer):
-            os.makedirs(self.tokenizer_path)
-
-        self.model_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, cache_dir=self.tokenizer_path)
-        tokenizer_path = os.path.join(self.tokenizer_path, os.listdir(tokenizer_path)[0])
-        tokenizer_path = os.path.join(tokenizer_path, "snapshots")
-        tokenizer_path = os.path.join(tokenizer_path, os.listdir(tokenizer_path)[0])
-        source_dir = tokenizer_path
-        tokenizer_file_list = os.listdir(tokenizer_path)
-        tokenizer_file_list = [f for f in file_list if os.path.isfile(os.path.join(tokenizer_path, f))]
-
-        for file_name in tokenizer_file_list:
-            source_file = os.path.join(tokenizer_path + file_name)
-            if os.path.islilnk(source_file):
-                actual_file = os.readlink(source_file)
-                print("####actual_file :", actual_file)
-
-                actual_file_path = os.path.join(os.path.dirname(source_dir), actual_file)
-                shutil.copy2(actual_file_path, self.tokenizer_path)
-
-            else:
-                print("Fail to download tokenizer")
+            print(f"Error occurred while deleting {directory_path}: {e}")                                            
 
