@@ -6,6 +6,7 @@
 ### Description
 - Dataset : [감성 대화 말뭉치](https://www.aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&aihubDataSe=realm&dataSetSn=86)
 - LLM model : Llama3.1-8B-Instruct
+- Notion : [LLM input context Token length 구하기](https://www.notion.so/LLM-input-context-Token-length-2444835e47414b6981c568bc01c761d7?pvs=4)
 
 # 감정 매칭 프로젝트
 
